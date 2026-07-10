@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+venv/
+
+# 数据库文件
+database/*.db
+database/*.duckdb
+
+# 输出文件
+outputs/*.json
+outputs/logs/*
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

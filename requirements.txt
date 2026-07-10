@@ -1,0 +1,5 @@
+# NL2SQL 商品问答系统依赖
+pandas
+openpyxl
+# openai  # 大模型调用（按需取消注释）
+# duckdb  # 可选数据库引擎

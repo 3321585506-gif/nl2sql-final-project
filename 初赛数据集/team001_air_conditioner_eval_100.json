@@ -1,0 +1,35 @@
+{
+  "team_id": "TEAM001",
+  "results": [
+    {
+      "id": "0",
+      "query": "有哪些支持WiFi控制和语音控制的一级能效壁挂式空调？",
+      "predicted_sql": "SELECT 品牌, 系列, 型号 FROM air_conditioner WHERE WiFi控制 = '是' AND 语音控制 = '是' AND 能效等级 = 1 AND 安装方式 = '壁挂式';",
+      "lantancy": "2.33s"
+    },
+    {
+      "id": "1",
+      "query": "哪些空调能在零下15度制热，而且年耗电量不超过250度？",
+      "predicted_sql": "SELECT 品牌, 系列, 型号, 制热最低温度_℃, 年耗电量_kWh FROM air_conditioner WHERE 制热最低温度_℃ < -15 AND 年耗电量_kWh < 250;",
+      "lantancy": "2.57s"
+    },
+    {
+      "id": "2",
+      "query": "我想找适合客厅用的柜机，要求使用R32冷媒、带自清洁功能，而且噪音不超过50分贝，有哪些可以选？",
+      "predicted_sql": "SELECT 品牌, 系列, 型号, 噪音_dB, 适用面积_平方米 FROM air_conditioner WHERE 安装方式 = '立柜式' AND 冷媒类型 = 'R32' AND 自清洁功能 = '是' AND 噪音_dB <= 50 AND 适用场景 LIKE '%客厅%';",
+      "lantancy": "1.36s"
+    },
+    {
+      "id": "3",
+      "query": "帮我找一下2024年上市的三相电嵌入式空调，要求制冷量在20000W以上并且有上下左右自动摆风功能的都有哪些？",
+      "predicted_sql": "SELECT 品牌, 系列, 型号, 制冷量_W, 适用面积_平方米 FROM air_conditioner WHERE 上市年份 = 2024 AND 电源相数 = '三相' AND 安装方式 = '嵌入式' AND 制冷量_W > 20000 AND 摆风方式 = '上下左右自动摆风';",
+      "lantancy": "2.50s"
+    },
+    {
+      "id": "4",
+      "query": "有没有全直流变频的冷暖空调，能效比制冷在5以上，而且能在零下20度制热的？",
+      "predicted_sql": "SELECT 品牌, 系列, 型号, 能效比_制冷, 制热最低温度_℃ FROM air_conditioner WHERE 变频类型 = '全直流变频' AND 空调类型 = '冷暖型' AND 能效比_制冷 > 5 AND 制热最低温度_℃ <= -20;",
+      "lantancy": "1.10s"
+    }
+  ]
+}
