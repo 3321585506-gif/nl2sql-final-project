@@ -25,5 +25,5 @@ LLM_MODEL = "deepseek-chat"  # 用 DeepSeek；如用 OpenAI 则改为 "gpt-4o-mi
 # ========== 功能开关 ==========
 ENABLE_CACHE = True
 ENABLE_VECTOR_RETRIEVAL = False
-MAX_SCHEMA_FIELDS = 30
+MAX_SCHEMA_FIELDS = 20     # 检索后放入 Prompt 的字段数（平衡速度与覆盖）
 MAX_EXAMPLES = 5

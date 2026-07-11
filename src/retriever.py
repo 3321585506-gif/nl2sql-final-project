@@ -177,13 +177,19 @@ def rank_fields(
     schema_info: dict | None = None
 ) -> list[dict]:
     """
-    对候选字段打分排序。
+    对候选字段打分排序（v2 优化版）。
 
-    打分规则：
-    - 关键词直接命中的字段: +3 per keyword match
-    - 表名/品类名命中: +2
-    - 字段类型与意图匹配: +1 (聚合 → 数值类型优先)
-    - 字段中有样例值匹配: +2
+    打分规则（分层）：
+    L1 精确匹配:
+      - 完整字段名（含 _）在 query 中出现: +4
+      - 短字段名（品牌/型号/价格）精确命中: +4
+    L2 关键词匹配:
+      - 字段名关键词命中: +3
+      - 表名中文部分命中: +2
+    L3 语义匹配:
+      - 聚合意图 + 数值字段: +2
+      - 优先语义词双向命中: +2
+      - 样例值命中（型号/品牌名）: +3
 
     Args:
         question: 标准化后的 query
@@ -201,43 +207,119 @@ def rank_fields(
         '最高', '最大', '最多', '最低', '最小', '最少',
         '降序', '升序', '排序', '排名',
     ])
+    has_ordering = any(w in question for w in ['降序', '升序', '排序', '排名', '从低到高', '从高到低'])
 
     scored: list[dict] = []
     for ref in candidates:
         score = 0
-        field_lower = ref["field"].lower()
+        field_name = ref["field"]
+        field_lower = field_name.lower()
         table_lower = ref["table"].lower()
 
-        # +3: 字段名关键词出现在 query 中
-        # 拆分字段名，检查各部分是否命中
-        field_parts = re.split(r'[_]+', field_lower)
-        for part in field_parts:
-            if len(part) >= 2 and part in q_lower:
-                score += 3
-                break  # 只加一次
+        # === L1: 精确匹配 ===
+        # 完整字段名（包含 _）在 query 中 → 高置信度
+        if '_' in field_name and field_lower in q_lower:
+            score += 5
+        # 短字段名（无 _）精确命中 → 高置信度（如"品牌""型号""颜色"）
+        elif '_' not in field_name and len(field_name) >= 2 and field_name in question:
+            score += 5
+        else:
+            # 字段名各部分命中
+            field_parts = re.split(r'[_]+', field_lower)
+            for part in field_parts:
+                if len(part) >= 2 and part in q_lower:
+                    score += 3
+                    break  # 只加一次
 
-        # +2: 表名出现在 query 中
+        # === L2: 表名匹配 ===
         table_cn = _extract_chinese(table_lower)
         if len(table_cn) >= 2 and table_cn in q_lower:
             score += 2
 
-        # +1: 聚合意图 + 数值字段
+        # === L3: 语义匹配 ===
+        # 聚合意图 + 数值字段
         if has_aggregation and ref["type"].upper() in ("INTEGER", "REAL", "FLOAT", "NUMERIC"):
+            score += 2
+
+        # 排序意图 + 数值字段
+        if has_ordering and ref["type"].upper() in ("INTEGER", "REAL", "FLOAT", "NUMERIC"):
             score += 1
 
-        # +1: 字段含 "价格"/"销量"/"评分"/"重量" 且 query 也有
-        priority_tokens = ["价格", "销量", "评分", "重量", "电池", "续航", "噪音", "功率", "刷新率"]
+        # 优先语义词双向命中
+        priority_tokens = ["价格", "销量", "评分", "重量", "电池", "续航",
+                          "噪音", "功率", "刷新率", "分辨率", "容量"]
         for pt in priority_tokens:
             if pt in field_lower and pt in q_lower:
                 score += 2
                 break
 
+        # === L4: 样例值匹配 ===
+        if schema_info:
+            sample_values = _get_sample_values(schema_info, ref["table"], field_name)
+            for sv in sample_values:
+                if len(sv) >= 2 and sv in question:
+                    score += 3
+                    break
+
         scored.append({**ref, "score": score})
 
-    # 按分数降序，分数相同按字段名长度升序（短名优先）
+    # 按分数降序，分数相同按字段名长度升序（短名优先 → 品牌/型号 排前面）
     scored.sort(key=lambda x: (-x["score"], len(x["field"])))
 
     return scored
+
+
+def _get_sample_values(schema_info: dict, table: str, field: str) -> list[str]:
+    """从 schema_info 中获取字段样例值。"""
+    try:
+        table_info = schema_info.get("tables", {}).get(table, {})
+        for col in table_info.get("columns", []):
+            if col.get("name") == field:
+                return col.get("sample_values", [])
+    except Exception:
+        pass
+    return []
+
+
+# ========== Few-shot 示例选择 ==========
+
+def select_fewshot_examples(
+    question: str,
+    candidate_pool: list[dict],
+    top_k: int = 3
+) -> list[dict]:
+    """
+    从候选池中选取与当前 question 最相似的 few-shot 示例。
+
+    相似度 = 共享关键词数量 / 候选 query 长度
+
+    Args:
+        question: 当前 query
+        candidate_pool: [{"query": "...", "sql": "..."}, ...]
+        top_k: 返回示例数
+
+    Returns:
+        最相似的 top_k 个示例 [{query, sql}, ...]
+    """
+    if not candidate_pool:
+        return []
+
+    q_chars = set(question)
+
+    scored = []
+    for item in candidate_pool:
+        c_query = item.get("query", "")
+        if not c_query:
+            continue
+        c_chars = set(c_query)
+        # Jaccard 相似度
+        intersection = len(q_chars & c_chars)
+        union = len(q_chars | c_chars)
+        similarity = intersection / max(union, 1)
+        scored.append((similarity, item))
+
+    scored.sort(key=lambda x: -x[0])
+    return [item for _, item in scored[:top_k]]
 
 
 def retrieve_schema_context(
@@ -316,6 +398,26 @@ def retrieve_schema_context(
 
     # Step 5: 打分排序
     ranked = rank_fields(normalized, candidates, schema_info)
+
+    # === 必要列保护：确保核心列不被遗漏 ===
+    # 对每个出现在 top tables 中的表，如果 品牌/型号/价格 列在候选但不在前排，提上来
+    top_table_set = set()
+    for f in ranked[:top_k_fields]:
+        top_table_set.add(f["table"])
+
+    essential_cols = {"品牌", "型号", "价格_元", "品牌名称", "型号名称"}
+    boosted: list[dict] = []
+    rest: list[dict] = []
+    for f in ranked:
+        if f["table"] in top_table_set and f["field"] in essential_cols and f["score"] < 3:
+            f["score"] = max(f["score"], 3)  # 确保不低于 3
+            boosted.append(f)
+        else:
+            rest.append(f)
+
+    # 合并：提升后的必要列 + 其余按原分数排序
+    ranked = boosted + rest
+    ranked.sort(key=lambda x: (-x["score"], len(x["field"])))
 
     # 取 top-k
     top_fields = ranked[:top_k_fields]
