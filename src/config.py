@@ -16,28 +16,36 @@ OUTPUT_PATH = PROJECT_ROOT / "outputs" / "predictions.json"
 TEAM_ID = "2075506812458762242"
 
 # ========== LLM 配置 ==========
-# provider: "openai" 走 OpenAI 兼容 API（三选一，通过环境变量切换）：
+# provider: "openai" 走 OpenAI 兼容 API
+#           "deepseek" 直接走 DeepSeek OpenAI-compatible API
 #           "mock"   测试用，不调模型
 #           "local"  本地模型
 #
-# === 三种 LLM 的配置方式 ===
-# DeepSeek:
-#   export OPENAI_API_KEY="sk-xxx"
-#   export OPENAI_BASE_URL="https://api.deepseek.com"
-#   LLM_MODEL = "deepseek-chat"
+# === 常用 LLM 配置方式 ===
+# DeepSeek（推荐同学使用这种）:
+#   $env:DEEPSEEK_API_KEY="sk-xxx"
+#   $env:LLM_PROVIDER="deepseek"
+#   $env:LLM_MODEL="deepseek-chat"
+#
+# DeepSeek（OpenAI-compatible 写法）:
+#   $env:OPENAI_API_KEY="sk-xxx"
+#   $env:OPENAI_BASE_URL="https://api.deepseek.com/v1"
+#   $env:LLM_PROVIDER="openai"
+#   $env:LLM_MODEL="deepseek-chat"
 #
 # Gemini:
-#   export OPENAI_API_KEY="你的Gemini_API_Key"
-#   export OPENAI_BASE_URL="https://generativelanguage.googleapis.com/v1beta/openai/"
-#   LLM_MODEL = "gemini-2.5-flash"
+#   $env:OPENAI_API_KEY="你的 Gemini API Key"
+#   $env:OPENAI_BASE_URL="https://generativelanguage.googleapis.com/v1beta/openai/"
+#   $env:LLM_PROVIDER="openai"
+#   $env:LLM_MODEL="gemini-2.5-flash"
 #
 # OpenAI:
-#   export OPENAI_API_KEY="sk-xxx"
-#   (不设 OPENAI_BASE_URL，默认走 api.openai.com)
-#   LLM_MODEL = "gpt-4o-mini"
-
+#   $env:OPENAI_API_KEY="sk-xxx"
+#   Remove-Item Env:\OPENAI_BASE_URL -ErrorAction SilentlyContinue
+#   $env:LLM_PROVIDER="openai"
+#   $env:LLM_MODEL="gpt-5.6-luna"
 LLM_PROVIDER = "openai"
-LLM_MODEL = "deepseek-chat"  # deepseek-chat / gemini-2.5-flash / gpt-4o-mini
+LLM_MODEL = "deepseek-chat"  # deepseek-chat / gemini-2.5-flash / gpt-5.6-luna
 
 # ========== 功能开关 ==========
 ENABLE_CACHE = True

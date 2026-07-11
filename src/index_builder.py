@@ -303,6 +303,71 @@ def build_inverted_index(
     return inverted_index
 
 
+def build_value_index(schema_catalog: dict) -> dict[str, list[dict]]:
+    """
+    Build value -> field references index from schema catalog enum/sample values.
+
+    Returns:
+        {
+            "铝合金": [
+                {"table": "electric_vehicle", "field": "车架材质", "value": "铝合金"}
+            ]
+        }
+    """
+    value_index: dict[str, list[dict]] = {}
+    for table_name, table_info in (schema_catalog or {}).get("tables", {}).items():
+        columns = table_info.get("columns", {})
+        for column_name, column_info in columns.items():
+            values = list(column_info.get("enum_values") or [])
+            if not values:
+                values = list(column_info.get("sample_values") or [])
+            for value in values:
+                if value is None:
+                    continue
+                key = _normalize_value_key(value)
+                if not key:
+                    continue
+                ref = {"table": table_name, "field": column_name, "value": value}
+                _append_unique_ref(value_index.setdefault(key, []), ref)
+    return value_index
+
+
+def build_entity_indexes(schema_catalog: dict) -> dict[str, dict]:
+    """
+    Build brand/model/enum indexes for entity extraction and longest matching.
+    """
+    brand_index: dict[str, list[dict]] = {}
+    model_index: dict[str, list[dict]] = {}
+    enum_index: dict[str, list[dict]] = {}
+
+    for table_name, table_info in (schema_catalog or {}).get("tables", {}).items():
+        columns = table_info.get("columns", {})
+        for column_name, column_info in columns.items():
+            role = column_info.get("role")
+            enum_values = list(column_info.get("enum_values") or [])
+            sample_values = list(column_info.get("sample_values") or [])
+            values = enum_values or sample_values
+            for value in values:
+                key = _normalize_value_key(value)
+                if not key:
+                    continue
+                ref = {"table": table_name, "field": column_name, "value": value}
+                if role == "brand":
+                    _append_unique_ref(brand_index.setdefault(key, []), ref)
+                elif role == "model":
+                    _append_unique_ref(model_index.setdefault(key, []), ref)
+                if enum_values:
+                    _append_unique_ref(enum_index.setdefault(key, []), ref)
+
+    return {
+        "brand_index": brand_index,
+        "model_index": model_index,
+        "enum_index": enum_index,
+        "brand_values_by_length": _values_by_length(brand_index),
+        "model_values_by_length": _values_by_length(model_index),
+    }
+
+
 # ========== 持久化 ==========
 
 def save_index(index: dict, path: str) -> None:
@@ -337,6 +402,22 @@ def load_index(path: str) -> dict:
         index = json.load(f)
     print(f"Index loaded: {path} ({len(index)} entries)")
     return index
+
+
+def _normalize_value_key(value) -> str:
+    return str(value).strip().lower()
+
+
+def _append_unique_ref(refs: list[dict], ref: dict) -> None:
+    key = (ref.get("table"), ref.get("field"), str(ref.get("value")))
+    for existing in refs:
+        if (existing.get("table"), existing.get("field"), str(existing.get("value"))) == key:
+            return
+    refs.append(ref)
+
+
+def _values_by_length(index: dict[str, list[dict]]) -> list[str]:
+    return sorted(index.keys(), key=lambda item: (-len(item), item))
 
 
 # ========== 一键构建 ==========

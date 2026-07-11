@@ -110,22 +110,60 @@ def _load_schema_info() -> dict:
 
 
 def _load_indexes(schema_info: dict) -> dict:
+    processed = config.PROCESSED_DATA_DIR
+    indexes: dict = {}
     try:
-        from .index_builder import build_alias_map, build_inverted_index
+        from scripts.build_artifacts import load_runtime_artifacts
+    except ImportError:
+        load_runtime_artifacts = None
+
+    if load_runtime_artifacts is not None:
+        try:
+            indexes.update(load_runtime_artifacts(str(processed)))
+        except FileNotFoundError:
+            pass
+
+    try:
+        from .index_builder import build_alias_map, build_inverted_index, load_index
     except ImportError:
         try:
-            from index_builder import build_alias_map, build_inverted_index
+            from index_builder import build_alias_map, build_inverted_index, load_index
         except ImportError:
-            return {}
+            return indexes
+
+    alias_path = processed / "alias_map.json"
+    inverted_path = processed / "inverted_index.json"
+    if "alias_map" not in indexes and alias_path.exists():
+        indexes["alias_map"] = load_index(str(alias_path))
+    if "inverted_index" not in indexes and inverted_path.exists():
+        indexes["inverted_index"] = load_index(str(inverted_path))
+    indexes.setdefault("top_k_fields", config.MAX_SCHEMA_FIELDS)
+    indexes.setdefault("examples", [])
+    if "alias_map" in indexes and "inverted_index" in indexes:
+        return indexes
+
     try:
-        alias_map = build_alias_map(schema_info)
-        inverted_index = build_inverted_index(schema_info, alias_map)
-        return {"alias_map": alias_map, "inverted_index": inverted_index}
+        indexes["alias_map"] = build_alias_map(schema_info)
+        indexes["inverted_index"] = build_inverted_index(schema_info, indexes["alias_map"])
+        return indexes
     except NotImplementedError:
-        return {}
+        return indexes
 
 
 def _load_schema_graph(schema_info: dict) -> dict:
+    try:
+        from scripts.build_artifacts import load_runtime_artifacts
+    except ImportError:
+        load_runtime_artifacts = None
+    if load_runtime_artifacts is not None:
+        try:
+            artifacts = load_runtime_artifacts(str(config.PROCESSED_DATA_DIR))
+            graph = artifacts.get("schema_graph")
+            if graph:
+                return graph
+        except FileNotFoundError:
+            pass
+
     try:
         from .schema_graph import build_schema_graph
     except ImportError:

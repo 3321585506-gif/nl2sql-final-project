@@ -9,6 +9,7 @@ from src.llm_client import LLMClient
 from src.main import run_pipeline_with_context
 from src.sql_checker import is_select_only, normalize_sql, validate_sql_schema
 from src.sql_executor import execute_sql
+from src.sql_generator import generate_sql_for_question
 from src.submission_writer import build_submission
 
 
@@ -82,6 +83,42 @@ class PipelineTest(unittest.TestCase):
             data = json.loads(output_path.read_text(encoding="utf-8"))
             self.assertEqual(data["team_id"], config.TEAM_ID)
             self.assertEqual(data["results"][0]["predicted_sql"], normalize_sql("SELECT 1;"))
+
+    def test_generate_sql_rule_route_keeps_legacy_fields(self):
+        schema = {
+            "tables": {
+                "electric_vehicle": {
+                    "columns": [
+                        {"name": "品牌", "type": "TEXT", "sample_values": ["雅迪"]},
+                        {"name": "型号", "type": "TEXT", "sample_values": ["天鹰T3"]},
+                        {"name": "车架材质", "type": "TEXT", "sample_values": ["铝合金"]},
+                    ]
+                }
+            }
+        }
+        indexes = {
+            "alias_map": {
+                "品牌": [{"table": "electric_vehicle", "field": "品牌", "type": "TEXT"}],
+                "型号": [{"table": "electric_vehicle", "field": "型号", "type": "TEXT"}],
+                "车架材质": [{"table": "electric_vehicle", "field": "车架材质", "type": "TEXT"}],
+            },
+            "inverted_index": {},
+            "top_k_fields": 10,
+        }
+
+        result = generate_sql_for_question(
+            "车架材质是铝合金的电动车品牌和型号",
+            schema,
+            indexes,
+            graph={},
+            llm_client=LLMClient("mock", "mock"),
+        )
+
+        self.assertEqual(result["route"], "rule")
+        self.assertIn("predicted_sql", result)
+        self.assertIn("latency", result)
+        self.assertIn("stage_timings", result)
+        self.assertIn("车架材质 = '铝合金'", result["predicted_sql"])
 
 
 if __name__ == "__main__":

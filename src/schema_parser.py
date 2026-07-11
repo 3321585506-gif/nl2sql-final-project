@@ -127,6 +127,113 @@ def collect_sample_values(db_path: str, table: str, column: str, limit: int = 5)
     return result
 
 
+def build_schema_catalog(db_path: str, sample_limit: int = 20) -> dict:
+    """
+    Build a richer, JSON-serializable schema catalog.
+
+    The catalog is intended for entity extraction, value indexes, and prompt
+    construction. It should be built during preprocessing, not once per query.
+    """
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+    table_names = [row[0] for row in cursor.fetchall()]
+
+    catalog = {"tables": {}}
+    for table_name in table_names:
+        cursor.execute(f"PRAGMA table_info({_quote_sqlite_literal(table_name)})")
+        columns = {}
+        for row in cursor.fetchall():
+            column_name = row[1]
+            column_type = row[2] or "TEXT"
+            profile = collect_column_profile(
+                db_path=db_path,
+                table=table_name,
+                column=column_name,
+                sample_limit=sample_limit,
+                _cursor=cursor,
+            )
+            columns[column_name] = {
+                "type": column_type,
+                "aliases": _default_column_aliases(column_name),
+                "sample_values": profile["sample_values"],
+                "enum_values": profile["enum_values"],
+                "distinct_count": profile["distinct_count"],
+                "min_value": profile["min_value"],
+                "max_value": profile["max_value"],
+                "unit": _infer_unit(column_name),
+                "role": _infer_column_role(column_name),
+            }
+        catalog["tables"][table_name] = {"columns": columns}
+    conn.close()
+    return catalog
+
+
+def collect_column_profile(
+    db_path: str,
+    table: str,
+    column: str,
+    sample_limit: int = 20,
+    _cursor=None,
+) -> dict:
+    """
+    Collect distinct count, sample values, enum values, and numeric range.
+
+    _cursor is an internal hook used by build_schema_catalog to reuse the same
+    connection while preserving the public function signature.
+    """
+    owns_connection = _cursor is None
+    conn = None
+    cursor = _cursor
+    if cursor is None:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+    profile = {
+        "distinct_count": 0,
+        "sample_values": [],
+        "enum_values": [],
+        "min_value": None,
+        "max_value": None,
+    }
+    table_sql = _quote_identifier(table)
+    column_sql = _quote_identifier(column)
+
+    try:
+        cursor.execute(
+            f"SELECT COUNT(DISTINCT {column_sql}) FROM {table_sql} "
+            f"WHERE {column_sql} IS NOT NULL"
+        )
+        profile["distinct_count"] = int(cursor.fetchone()[0] or 0)
+
+        cursor.execute(
+            f"SELECT DISTINCT {column_sql} FROM {table_sql} "
+            f"WHERE {column_sql} IS NOT NULL LIMIT {int(sample_limit)}"
+        )
+        values = [row[0] for row in cursor.fetchall() if row[0] is not None]
+        profile["sample_values"] = [_json_safe_value(value) for value in values]
+        if 0 < profile["distinct_count"] <= sample_limit:
+            profile["enum_values"] = list(profile["sample_values"])
+
+        cursor.execute(
+            f"SELECT MIN(CAST({column_sql} AS REAL)), MAX(CAST({column_sql} AS REAL)) "
+            f"FROM {table_sql} WHERE {column_sql} IS NOT NULL "
+            f"AND (TRIM(CAST({column_sql} AS TEXT)) GLOB '-[0-9]*' "
+            f"OR TRIM(CAST({column_sql} AS TEXT)) GLOB '[0-9]*')"
+        )
+        min_value, max_value = cursor.fetchone()
+        if min_value is not None and max_value is not None:
+            profile["min_value"] = float(min_value)
+            profile["max_value"] = float(max_value)
+    except Exception:
+        pass
+    finally:
+        if owns_connection and conn is not None:
+            conn.close()
+
+    return profile
+
+
 # ========== 内部辅助函数 ==========
 
 def _safe_sample(cursor, table: str, column: str, limit: int = 5) -> list:
@@ -141,6 +248,52 @@ def _safe_sample(cursor, table: str, column: str, limit: int = 5) -> list:
         return [str(r[0]) for r in rows if r[0] is not None]
     except Exception:
         return []
+
+
+def _quote_identifier(name: str) -> str:
+    return '"' + str(name).replace('"', '""') + '"'
+
+
+def _quote_sqlite_literal(value: str) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _json_safe_value(value):
+    if isinstance(value, (int, float)) or value is None:
+        return value
+    return str(value)
+
+
+def _default_column_aliases(column_name: str) -> list[str]:
+    aliases = {column_name}
+    compact = column_name.replace("_", "")
+    aliases.add(compact)
+    if column_name == "散热器类型":
+        aliases.update(["散热方式", "散热类型"])
+    if column_name == "触摸屏":
+        aliases.update(["触控屏", "支持触摸屏"])
+    if column_name in {"型号", "型号名称"}:
+        aliases.update(["型号", "款式", "产品型号"])
+    if column_name in {"品牌", "品牌名称"}:
+        aliases.update(["品牌", "牌子", "厂商"])
+    return [item for item in aliases if item]
+
+
+def _infer_unit(column_name: str) -> str | None:
+    if "_" not in column_name:
+        return None
+    unit = column_name.rsplit("_", 1)[-1]
+    if re.fullmatch(r"[A-Za-z%]+(?:/[A-Za-z]+)?", unit):
+        return unit
+    return None
+
+
+def _infer_column_role(column_name: str) -> str | None:
+    if column_name in {"品牌", "品牌名称"}:
+        return "brand"
+    if column_name in {"型号", "型号名称", "SKU编码"}:
+        return "model"
+    return None
 
 
 def _parse_ddl_comments(ddl_path: str) -> dict:

@@ -241,8 +241,8 @@ def evaluate_predictions(
     gold_records = _load_jsonl(validation_file)
 
     # 按 id 对齐（如果预测结果无 id，按顺序对齐）
-    pred_map = {r.get("id", f"Q{i:04d}"): r for i, r in enumerate(pred_data.get("results", []))}
-    gold_map = {r.get("id", f"Q{i:04d}"): r for i, r in enumerate(gold_records)}
+    pred_map = {r.get("id", f"Q{i+1:04d}"): r for i, r in enumerate(pred_data.get("results", []))}
+    gold_map = {r.get("id", f"Q{i+1:04d}"): r for i, r in enumerate(gold_records)}
 
     # 只评估两个集合共有的样本
     common_ids = sorted(set(pred_map.keys()) & set(gold_map.keys()))
