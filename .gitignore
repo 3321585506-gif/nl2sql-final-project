@@ -1,17 +1,21 @@
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-.env
-venv/
-
-# 数据库文件
+# Data and generated artifacts
+data/raw/
+data/processed/
 database/*.db
 database/*.duckdb
-
-# 输出文件
+outputs/
 outputs/*.json
 outputs/logs/*
+
+# Python
+__pycache__/
+*.pyc
+*.py[cod]
+*.egg-info/
+
+# Local env
+.env
+venv/
 
 # IDE
 .vscode/
