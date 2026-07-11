@@ -36,12 +36,16 @@ class LLMClient:
     def _generate_openai(self, prompt: str, temperature: float, max_tokens: int) -> str:
         if not self.api_key:
             raise RuntimeError("OPENAI_API_KEY is required for provider='openai'")
+        base_url = os.getenv("OPENAI_BASE_URL")
         try:
             from openai import OpenAI
-        except ImportError as exc:
-            raise RuntimeError("openai package is required for provider='openai'") from exc
+        except ImportError:
+            return self._generate_openai_http(prompt, temperature, max_tokens, base_url)
 
-        client = OpenAI(api_key=self.api_key)
+        client_kwargs = {"api_key": self.api_key}
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        client = OpenAI(**client_kwargs)
         response = client.chat.completions.create(
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
@@ -49,6 +53,43 @@ class LLMClient:
             max_tokens=max_tokens,
         )
         return response.choices[0].message.content or ""
+
+    def _generate_openai_http(
+        self,
+        prompt: str,
+        temperature: float,
+        max_tokens: int,
+        base_url: str | None,
+    ) -> str:
+        api_base = (base_url or "https://api.openai.com/v1").rstrip("/")
+        payload = json.dumps(
+            {
+                "model": self.model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            f"{api_base}/chat/completions",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=90) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except (urllib.error.URLError, TimeoutError) as exc:
+            raise RuntimeError(f"OpenAI-compatible request failed: {exc}") from exc
+
+        choices = data.get("choices") if isinstance(data, dict) else None
+        if not choices:
+            raise RuntimeError(f"OpenAI-compatible response has no choices: {data}")
+        message = choices[0].get("message", {})
+        return message.get("content") or choices[0].get("text") or ""
 
     def _generate_local(self, prompt: str, temperature: float, max_tokens: int) -> str:
         endpoint = os.getenv("LOCAL_LLM_ENDPOINT")

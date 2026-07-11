@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from src import config
 from src.llm_client import LLMClient
 from src.main import run_pipeline_with_context
 from src.sql_checker import is_select_only, normalize_sql, validate_sql_schema
@@ -79,7 +80,7 @@ class PipelineTest(unittest.TestCase):
             )
 
             data = json.loads(output_path.read_text(encoding="utf-8"))
-            self.assertEqual(data["team_id"], "TEAM001")
+            self.assertEqual(data["team_id"], config.TEAM_ID)
             self.assertEqual(data["results"][0]["predicted_sql"], normalize_sql("SELECT 1;"))
 
 
