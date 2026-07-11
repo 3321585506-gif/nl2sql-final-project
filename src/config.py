@@ -16,8 +16,11 @@ OUTPUT_PATH = PROJECT_ROOT / "outputs" / "predictions.json"
 TEAM_ID = "2075506812458762242"
 
 # ========== LLM 配置 ==========
-LLM_PROVIDER = "openai"  # 或 "mock" / "local"
-LLM_MODEL = "gpt-4o-mini"
+# provider: "openai" 走 OpenAI 兼容 API（DeepSeek 也走这里，设 OPENAI_BASE_URL 即可）
+#           "mock"   测试用，不调模型
+#           "local"  本地模型
+LLM_PROVIDER = "openai"
+LLM_MODEL = "deepseek-chat"  # 用 DeepSeek；如用 OpenAI 则改为 "gpt-4o-mini"
 
 # ========== 功能开关 ==========
 ENABLE_CACHE = True
