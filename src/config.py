@@ -16,7 +16,7 @@ OUTPUT_PATH = PROJECT_ROOT / "outputs" / "predictions.json"
 TEAM_ID = "2075506812458762242"
 
 # ========== LLM 配置 ==========
-LLM_PROVIDER = "openai"  # 或 "local"
+LLM_PROVIDER = "openai"  # 或 "mock" / "local"
 LLM_MODEL = "gpt-4o-mini"
 
 # ========== 功能开关 ==========

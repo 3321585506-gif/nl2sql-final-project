@@ -193,8 +193,7 @@ def find_join_path(graph: dict, start_table: str, end_table: str) -> list[dict]:
                 visited.add(neighbor)
                 queue.append((neighbor, path + [edge]))
 
-    # 找不到路径
-    print(f"  Warning: No JOIN path found between '{start_table}' and '{end_table}'")
+    # 找不到路径（独立表间无 JOIN 关系，属于正常情况）
     return []
 
 
