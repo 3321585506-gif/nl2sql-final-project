@@ -16,6 +16,18 @@ import os
 import sys
 from pathlib import Path
 
+# ===== 加载 .env 文件（IDE 点运行也能读到 Key） =====
+_ENV_FILE = Path(__file__).resolve().parent / ".env"
+if _ENV_FILE.exists():
+    with open(_ENV_FILE, "r", encoding="utf-8") as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if _line and not _line.startswith("#") and "=" in _line:
+                _key, _val = _line.split("=", 1)
+                _key, _val = _key.strip(), _val.strip()
+                if _key and _key not in os.environ:
+                    os.environ[_key] = _val
+
 sys.path.insert(0, str(Path(__file__).resolve()))
 
 from src.config import (  # noqa: E402
@@ -238,11 +250,12 @@ if __name__ == "__main__":
     parser.add_argument("-q", type=str, default=None, help="single question")
     args = parser.parse_args()
 
-    if args.query:
-        mode_interactive()
+    if args.eval:
+        mode_eval(full=args.full, limit=args.limit)
     elif args.q:
         mode_single_query(args.q)
-    elif args.eval:
-        mode_eval(full=args.full, limit=args.limit)
+    elif args.query:
+        mode_interactive()
     else:
-        mode_submit()
+        # 默认：无参数时进入交互模式（方便 IDE 点击运行）
+        mode_interactive()

@@ -20,7 +20,7 @@ except ImportError:
     from sql_checker import extract_sql, is_select_only, normalize_sql, validate_sql_schema
 
 
-RULE_CONFIDENCE_THRESHOLD = 0.85
+RULE_CONFIDENCE_THRESHOLD = 0.75
 
 
 def generate_sql_for_question(
@@ -262,11 +262,21 @@ def _parse_rule_query_to_ir(question: str, schema_context: dict, schema_info: di
         if column not in filter_columns
     ]
 
+    # 如果 selected_columns 为空但有 filter，兜底加上常用展示列
+    if not selected_columns and filters:
+        for default_col in ("品牌", "型号", "型号名称", "价格_元"):
+            if default_col in columns_by_table.get(main_table, {}):
+                selected_columns.append(default_col)
+                if len(selected_columns) >= 3:
+                    break
+
     confidence = 0.0
     if selected_columns:
         confidence += 0.35
     if filters:
-        confidence += 0.35
+        # 比较运算符(> / < / BETWEEN)置信度更高
+        has_comparison = any(f.operator in (">", ">=", "<", "<=", "BETWEEN") for f in filters)
+        confidence += 0.40 if has_comparison else 0.35
     if len(table_counts) == 1:
         confidence += 0.2
     elif _is_dominant_table(main_table, table_counts):
@@ -304,6 +314,7 @@ def _column_label(column: str) -> str:
 def _filters_from_question(question: str, table: str, columns: dict[str, dict]) -> list[FilterCondition]:
     filters: list[FilterCondition] = []
     seen_fields: set[str] = set()
+    # 1) 精确值匹配（品牌/型号/材质/功能等）
     for column, info in columns.items():
         values = list(info.get("enum_values") or info.get("sample_values") or info.get("samples") or [])
         for value in sorted(values, key=lambda item: -len(str(item))):
@@ -312,13 +323,78 @@ def _filters_from_question(question: str, table: str, columns: dict[str, dict]) 
                 filters.append(FilterCondition(FieldRef(table, column), "=", value))
                 seen_fields.add(column)
                 break
+
+    # 2) 数值比较条件（> >= < <= BETWEEN）
     for column in columns:
         if column in seen_fields:
             continue
-        numeric_value = _numeric_value_for_column(question, column)
-        if numeric_value is not None:
-            filters.append(FilterCondition(FieldRef(table, column), "=", numeric_value))
+        num_result = _extract_numeric_condition(question, column)
+        if num_result is not None:
+            filters.append(FilterCondition(
+                FieldRef(table, column), num_result["operator"], num_result["value"]
+            ))
+            seen_fields.add(column)
+
     return filters
+
+
+def _extract_numeric_condition(question: str, column: str) -> dict | None:
+    """Extract numeric comparison from question for a given column.
+
+    Returns {"operator": ">=", "value": 3500} or {"operator": "BETWEEN", "value": [5000, 10000]} or None.
+    """
+    if not _column_mentions(question, column) and not _is_numeric_condition_column(column):
+        return None
+
+    import re
+
+    # 找到列名关键词在 question 中的位置，在附近找数字
+    label = _column_label(column)
+    label_pos = question.find(label) if label in question else question.find(column)
+    if label_pos < 0:
+        label_pos = 0
+
+    # 在列名附近 30 字符内搜索数字
+    search_window = question[max(0, label_pos - 5):label_pos + len(label) + 35]
+
+    # BETWEEN: "X到Y之间" / "X至Y" / "X-Y"
+    between_match = re.search(r'(\d+\.?\d*)\s*(?:到|至|[-])\s*(\d+\.?\d*)\s*(?:之间)?', search_window)
+    if between_match:
+        v1 = float(between_match.group(1))
+        v2 = float(between_match.group(2))
+        return {"operator": "BETWEEN", "value": [
+            int(v1) if v1 == int(v1) else v1,
+            int(v2) if v2 == int(v2) else v2,
+        ]}
+
+    # 比较: "大于/高于/超过/不小于/不低于/以上" "小于/低于/不超过/不大于/不大于/以下"
+    gt_patterns = [
+        (r'(?:大于|高于|超过|不小于|不低于|不少于|至少)\s*(\d+\.?\d*)', '>='),
+        (r'(\d+\.?\d*)\s*(?:以上|及以上)', '>='),
+    ]
+    lt_patterns = [
+        (r'(?:小于|低于|不超过|不大于|不到)\s*(\d+\.?\d*)', '<='),
+        (r'(\d+\.?\d*)\s*(?:以下|及以下)', '<='),
+    ]
+
+    for pattern, op in gt_patterns:
+        m = re.search(pattern, search_window)
+        if m:
+            v = float(m.group(1))
+            return {"operator": op, "value": int(v) if v == int(v) else v}
+
+    for pattern, op in lt_patterns:
+        m = re.search(pattern, search_window)
+        if m:
+            v = float(m.group(1))
+            return {"operator": op, "value": int(v) if v == int(v) else v}
+
+    # 纯数字（兜底 = 匹配）
+    digit_match = _find_near_number(question, column)
+    if digit_match is not None:
+        return {"operator": "=", "value": digit_match}
+
+    return None
 
 
 def _elapsed_ms(start: float) -> float:
@@ -374,17 +450,46 @@ def _value_filter_allowed(question: str, column: str) -> bool:
 
 
 def _column_mentions(question: str, column: str) -> bool:
+    """Check if the question mentions this column (by full name or label prefix)."""
     label = _column_label(column)
     if column in question or (len(label) >= 2 and label in question):
         return True
-    for token in ("档位", "数量", "级数", "核心数", "线程数"):
-        if token in column and token[:2] in question:
+    # 列名各片段是否被提及
+    for part in column.split("_"):
+        if len(part) >= 2 and part in question:
+            return True
+    # 常见数值列关键词
+    numeric_keywords = (
+        "档位", "数量", "级数", "核心数", "线程数", "位数",
+        "功率", "容量", "电压", "频率", "转速", "速度",
+        "时间", "时长", "年限", "里程", "尺寸", "面积",
+        "容积", "重量", "厚度", "长度", "宽度", "高度",
+        "价格", "销量", "库存", "噪音", "温度", "风量",
+    )
+    for token in numeric_keywords:
+        if token in column and token in question:
             return True
     return False
 
 
 def _is_numeric_condition_column(column: str) -> bool:
-    return any(token in column for token in ("数量", "级数", "核心数", "线程数", "档位"))
+    """判断列是否可能参与数值比较（大于/小于/范围等）。"""
+    # 列名含数量/级/率/功率/容量/时间/速度/尺寸/重量/价格 等 → 数值列
+    numeric_tokens = (
+        "数量", "级数", "核心数", "线程数", "档位", "位数",
+        "功率", "容量", "电压", "电流", "频率", "转速",
+        "时间", "时长", "年限", "年份", "月份", "日期",
+        "速度", "里程", "距离", "高度", "深度",
+        "尺寸", "面积", "容积", "重量", "厚度", "长度", "宽度", "轴距",
+        "价格", "金额", "销售额", "销量", "库存", "成本", "毛利",
+        "率", "等级", "能效", "分辨率", "像素", "亮度",
+        "噪音", "分贝", "温度", "湿度", "风量",
+        "倍数", "数量", "个数", "点数",
+        "mAh", "Wh", "GHz", "MHz", "Hz", "W", "V", "A",
+        "mm", "cm", "m", "kg", "g", "L", "dB", "nit", "ms",
+        "℃", "%", "元",
+    )
+    return any(token in column for token in numeric_tokens)
 
 
 def _find_near_number(question: str, column: str) -> int | float | None:
@@ -402,26 +507,13 @@ def _find_near_number(question: str, column: str) -> int | float | None:
 
 
 def _is_rule_supported_question(question: str) -> bool:
-    unsupported_markers = [
-        "至少",
-        "不低于",
-        "不超过",
-        "之间",
-        "以上",
-        "以下",
-        "从低到高",
-        "从高到低",
-        "排序",
-        "排名",
-        "前",
-        "最低",
-        "最高的",
-        "最大",
-        "最小",
-        "平均",
-        "统计",
+    """Only reject patterns the rule compiler truly cannot handle yet."""
+    # 聚合/排序/分组 → rule compiler 暂不支持，走 LLM
+    aggregation_markers = [
+        "平均", "统计", "总计", "总和", "分组",
+        "从低到高", "从高到低", "排序", "排名",
+        "前几", "最高", "最低", "最大", "最小",
+        "多少款", "多少种", "一共有",
         "成交记录",
-        "目前在售",
-        "还在售",
     ]
-    return not any(marker in question for marker in unsupported_markers)
+    return not any(marker in question for marker in aggregation_markers)
