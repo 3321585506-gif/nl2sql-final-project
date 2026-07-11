@@ -142,7 +142,7 @@ def _print_result(result: dict):
         for e in join_edges:
             print(f"  {e.get('from','')} → {e.get('to','')}  ON {e.get('on','')}")
 
-    # 执行结果
+    # 执行结果 + 自然语言润色
     if result.get("predicted_sql") and result["predicted_sql"] != "SELECT 1;":
         exec_result = execute_sql(str(DB_PATH), result["predicted_sql"])
         if exec_result.get("success"):
@@ -155,6 +155,10 @@ def _print_result(result: dict):
                     print(f"  {row}")
                 if len(rows) > 10:
                     print(f"  ... ({len(rows) - 10} more rows)")
+            # === 自然语言润色 ===
+            from src.answer_polisher import polish_answer
+            answer = polish_answer(result["question"], exec_result)
+            print(f"\n  Answer: {answer}")
         else:
             print(f"Exec Error: {exec_result.get('error', 'unknown')}")
 
