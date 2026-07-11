@@ -13,7 +13,7 @@ DB_PATH = PROJECT_ROOT / "database" / "products.db"
 OUTPUT_PATH = PROJECT_ROOT / "outputs" / "predictions.json"
 
 # ========== 团队信息 ==========
-TEAM_ID = "TEAM001"
+TEAM_ID = "2075506812458762242"
 
 # ========== LLM 配置 ==========
 LLM_PROVIDER = "openai"  # 或 "local"
