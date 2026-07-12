@@ -330,7 +330,16 @@ def _filters_from_question(question: str, table: str, columns: dict[str, dict]) 
                 seen_fields.add(column)
                 break
 
-    # 2) 数值比较条件（> >= < <= BETWEEN）
+    # 2) 等级词映射（"一级"→1, "二级"→2, 对应能效等级等列）
+    for column in columns:
+        if column in seen_fields:
+            continue
+        level_val = _extract_level_for_column(question, column)
+        if level_val is not None:
+            filters.append(FilterCondition(FieldRef(table, column), "=", level_val))
+            seen_fields.add(column)
+
+    # 3) 数值比较条件（> >= < <= BETWEEN）
     for column in columns:
         if column in seen_fields:
             continue
@@ -445,6 +454,24 @@ def _numeric_value_for_column(question: str, column: str) -> int | float | None:
     }
     for char, value in chinese_numbers.items():
         if f"{char}个" in question or f"{char}档" in question or f"{char}级" in question:
+            return value
+    return None
+
+
+# 等级词 → 数值映射
+_LEVEL_MAP: dict[str, int] = {
+    "一级": 1, "二级": 2, "三级": 3, "四级": 4, "五级": 5,
+    "1级": 1, "2级": 2, "3级": 3, "4级": 4, "5级": 5,
+}
+_LEVEL_COLUMNS = {"能效等级", "能效级别", "能耗等级", "噪音等级", "防护等级", "防水等级"}
+
+
+def _extract_level_for_column(question: str, column: str) -> int | None:
+    """如果 question 含等级词('一级'→1)且 column 是等级类列，返回数值。"""
+    if column not in _LEVEL_COLUMNS:
+        return None
+    for word, value in sorted(_LEVEL_MAP.items(), key=lambda x: -len(x[0])):
+        if word in question:
             return value
     return None
 

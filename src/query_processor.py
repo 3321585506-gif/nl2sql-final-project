@@ -288,3 +288,31 @@ def _dedupe(values: list[str]) -> list[str]:
 def _number_value(raw: str) -> int | float:
     value = float(raw)
     return int(value) if value.is_integer() else value
+
+
+# ========== 等级/级别词 → 数值映射 ==========
+
+# 中文等级词 → 数值
+_LEVEL_MAP: dict[str, int] = {
+    "一级": 1, "二级": 2, "三级": 3, "四级": 4, "五级": 5,
+    "六級": 6, "七级": 7, "八级": 8, "九级": 9,
+    "1级": 1, "2级": 2, "3级": 3, "4级": 4, "5级": 5,
+    "Ⅰ级": 1, "Ⅱ级": 2, "Ⅲ级": 3, "Ⅳ级": 4, "Ⅴ级": 5,
+}
+# 等级词对应的列名候选
+_LEVEL_COLUMNS: list[str] = [
+    "能效等级", "能效级别", "能耗等级", "防水防尘等级", "防护等级",
+    "防水等级", "防尘防水等级", "噪音等级", "防腐等级",
+]
+
+
+def extract_level_value(question: str) -> dict | None:
+    """
+    从问题中提取等级描述词，映射为数值。
+
+    "一级能效" → {"value": 1, "columns": ["能效等级", "能效级别", ...]}
+    """
+    for word, value in sorted(_LEVEL_MAP.items(), key=lambda x: -len(x[0])):
+        if word in question:
+            return {"value": value, "word": word, "columns": list(_LEVEL_COLUMNS)}
+    return None

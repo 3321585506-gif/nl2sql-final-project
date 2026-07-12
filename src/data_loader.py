@@ -95,7 +95,7 @@ def load_test_queries(test_file: str) -> list[dict]:
     每行一个 JSON 对象，支持两种格式：
     1. 测试集（无 ground truth）：
        {"query": "..."}
-       → 自动生成 id = "Q001", "Q002", ...
+       → 自动生成 id = "0", "1", "2", ...
 
     2. 验证集（含 ground truth）：
        {"query": "...", "sql": "SELECT ...", "table": "...", "type": ..., "used": ...}
@@ -120,7 +120,7 @@ def load_test_queries(test_file: str) -> list[dict]:
 
             # 确保有 id 字段
             if "id" not in record:
-                record["id"] = f"Q{idx + 1:04d}"
+                record["id"] = str(idx)
 
             queries.append(record)
 
