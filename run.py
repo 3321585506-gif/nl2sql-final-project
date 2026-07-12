@@ -278,11 +278,14 @@ if __name__ == "__main__":
     parser.add_argument("--eval", action="store_true", help="run validation evaluation")
     parser.add_argument("--full", action="store_true", help="run all validation samples with --eval")
     parser.add_argument("--limit", type=int, default=None, help="run N validation samples with --eval")
+    parser.add_argument("--submit", action="store_true", help="generate submission JSON from test set")
     parser.add_argument("--query", action="store_true", help="interactive query mode")
     parser.add_argument("-q", type=str, default=None, help="single question")
     args = parser.parse_args()
 
-    if args.eval:
+    if args.submit:
+        mode_submit()
+    elif args.eval:
         mode_eval(full=args.full, limit=args.limit)
     elif args.q:
         mode_single_query(args.q)
