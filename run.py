@@ -70,6 +70,31 @@ def _effective_llm() -> tuple[str, str]:
     return os.getenv("LLM_PROVIDER", LLM_PROVIDER), os.getenv("LLM_MODEL", LLM_MODEL)
 
 
+def _load_sql_cache(path: str) -> dict[str, str]:
+    """从磁盘加载 SQL 缓存。"""
+    import json as _json
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            cache = _json.load(f)
+            if isinstance(cache, dict) and cache:
+                print(f"  Cache loaded: {len(cache)} entries from {Path(path).name}")
+                return cache
+    except (FileNotFoundError, _json.JSONDecodeError):
+        pass
+    return {}
+
+
+def _save_sql_cache(cache: dict, path: str) -> None:
+    """保存 SQL 缓存到磁盘。"""
+    import json as _json
+    if not cache:
+        return
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        _json.dump(cache, f, ensure_ascii=False, indent=2)
+    print(f"  Cache saved: {len(cache)} entries -> {Path(path).name}")
+
+
 def _load_context() -> tuple[dict, dict, dict, LLMClient]:
     print("[Loading] schema, indexes, graph...")
     schema_info = parse_sqlite_schema(str(DB_PATH))
@@ -79,6 +104,7 @@ def _load_context() -> tuple[dict, dict, dict, LLMClient]:
         "inverted_index": load_index(str(processed / "inverted_index.json")),
         "top_k_fields": MAX_SCHEMA_FIELDS,
         "examples": [],
+        "cache": _load_sql_cache(str(processed / "sql_cache.json")),
     }
     if load_runtime_artifacts is not None:
         try:
@@ -168,6 +194,11 @@ def mode_eval(full: bool = False, limit: int | None = None) -> dict:
     )
     print_evaluation_report(result)
 
+    # 保存缓存到磁盘
+    cache = indexes.get("cache")
+    if isinstance(cache, dict) and cache:
+        _save_sql_cache(cache, str(PROJECT_ROOT / "data" / "processed" / "sql_cache.json"))
+
     if predictions:
         print("\nRoute Stats:")
         for route, count in sorted(route_counts.items()):
@@ -175,6 +206,7 @@ def mode_eval(full: bool = False, limit: int | None = None) -> dict:
         print("\nAvg Stage Timings:")
         for key, value in sorted(total_stage_ms.items()):
             print(f"  {key}: {value / len(predictions):.3f} ms")
+        print(f"\n  Cache hits: {route_counts.get('cache', 0)}")
     return result
 
 

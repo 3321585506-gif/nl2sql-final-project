@@ -109,6 +109,16 @@ def _load_schema_info() -> dict:
     raise RuntimeError("schema_info is not available. Please let A finish schema_parser.py or provide a SQLite database.")
 
 
+def _load_sql_cache(path: str) -> dict[str, str]:
+    """从磁盘加载 SQL 缓存。"""
+    import json as _json
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return _json.load(f)
+    except (FileNotFoundError, _json.JSONDecodeError):
+        return {}
+
+
 def _load_indexes(schema_info: dict) -> dict:
     processed = config.PROCESSED_DATA_DIR
     indexes: dict = {}
@@ -139,6 +149,7 @@ def _load_indexes(schema_info: dict) -> dict:
         indexes["inverted_index"] = load_index(str(inverted_path))
     indexes.setdefault("top_k_fields", config.MAX_SCHEMA_FIELDS)
     indexes.setdefault("examples", [])
+    indexes.setdefault("cache", _load_sql_cache(str(processed / "sql_cache.json")))
     if "alias_map" in indexes and "inverted_index" in indexes:
         return indexes
 

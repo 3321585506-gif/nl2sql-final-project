@@ -115,6 +115,12 @@ def generate_sql_for_question(
         error = "; ".join(schema_errors)
     stage_timings["validation_ms"] = _elapsed_ms(stage_start)
 
+    # === 写入缓存（后续相同/相似 query 0ms 命中） ===
+    if predicted_sql and not error and route in ("rule", "llm"):
+        cache = (indexes or {}).get("cache")
+        if isinstance(cache, dict):
+            cache[question] = predicted_sql
+
     latency = time.perf_counter() - start
     stage_timings["total_ms"] = round(latency * 1000, 3)
     return {
